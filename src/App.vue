@@ -9,7 +9,10 @@ const userColor = ref('')
 const cursorPositions = ref<Record<string, { position: number; color: string }>>({})
 const versions = ref<{ id: number; timestamp: number }[]>([])
 const selectedVersion = ref('')
-const ws: WebSocket | null = null
+// WebSocket连接管理
+let ws: WebSocket | null = null
+let reconnectTimer: number | null = null
+const RECONNECT_INTERVAL = 3000 // 3秒后尝试重连
 
 // 防抖函数
 const debounce = (func: Function, delay: number) => {
@@ -25,74 +28,135 @@ const debounce = (func: Function, delay: number) => {
   }
 }
 
-// 连接到WebSocket服务器
-onMounted(() => {
-  const ws = new WebSocket('ws://localhost:3000')
-
-  ws.onopen = () => {
-    console.log('Connected to WebSocket server')
-    // 获取版本列表
-    fetchVersionList()
+// 处理JSON.stringify错误
+const safeStringify = (data: any): string => {
+  try {
+    return JSON.stringify(data)
+  } catch (error) {
+    console.error('JSON.stringify error:', error)
+    ElMessage.error('数据序列化失败，请检查输入内容')
+    return ''
   }
+}
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      switch (data.type) {
-        case 'init':
-          documentContent.value = data.content
-          userId.value = data.userId
-          userColor.value = data.userColor
-          break
-        case 'update':
-          documentContent.value = data.content
-          break
-        case 'cursorMove':
-          cursorPositions.value[data.userId] = {
-            position: data.position,
-            color: data.color
-          }
-          // 5秒后移除光标位置
-          setTimeout(() => {
+// 发送WebSocket消息
+const sendMessage = (message: any) => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const jsonString = safeStringify(message)
+    if (jsonString) {
+      try {
+        ws.send(jsonString)
+      } catch (error) {
+        console.error('WebSocket send error:', error)
+        ElMessage.error('消息发送失败，请检查网络连接')
+        startReconnectTimer()
+      }
+    }
+  } else {
+    console.error('WebSocket is not open')
+    ElMessage.error('WebSocket连接已断开，请稍候重试')
+    startReconnectTimer()
+  }
+}
+
+// 连接到WebSocket服务器
+const connectWebSocket = () => {
+  try {
+    ws = new WebSocket('ws://localhost:3000')
+
+    ws.onopen = () => {
+      console.log('Connected to WebSocket server')
+      clearReconnectTimer()
+      // 获取版本列表
+      fetchVersionList()
+    }
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        switch (data.type) {
+          case 'init':
+            documentContent.value = data.content
+            userId.value = data.userId
+            userColor.value = data.userColor
+            break
+          case 'update':
+            documentContent.value = data.content
+            break
+          case 'cursorMove':
+            cursorPositions.value[data.userId] = {
+              position: data.position,
+              color: data.color
+            }
+            // 5秒后移除光标位置
+            setTimeout(() => {
+              if (cursorPositions.value[data.userId]) {
+                delete cursorPositions.value[data.userId]
+              }
+            }, 5000)
+            break
+          case 'userJoin':
+            ElMessage({
+              message: `用户 ${data.userId} 加入`,
+              type: 'success'
+            })
+            break
+          case 'userLeave':
+            ElMessage({
+              message: `用户 ${data.userId} 离开`,
+              type: 'warning'
+            })
             if (cursorPositions.value[data.userId]) {
               delete cursorPositions.value[data.userId]
             }
-          }, 5000)
-          break
-        case 'userJoin':
-          ElMessage({
-            message: `用户 ${data.userId} 加入`,
-            type: 'success'
-          })
-          break
-        case 'userLeave':
-          ElMessage({
-            message: `用户 ${data.userId} 离开`,
-            type: 'warning'
-          })
-          if (cursorPositions.value[data.userId]) {
-            delete cursorPositions.value[data.userId]
-          }
-          break
+            break
+        }
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error)
       }
-    } catch (error) {
-      console.error('Error processing WebSocket message:', error)
     }
-  }
 
-  ws.onclose = () => {
-    console.log('Disconnected from WebSocket server')
-  }
+    ws.onclose = () => {
+      console.log('Disconnected from WebSocket server')
+      startReconnectTimer()
+    }
 
-  ws.onerror = (error) => {
-    console.error('WebSocket error:', error)
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error)
+      startReconnectTimer()
+    }
+  } catch (error) {
+    console.error('Error initializing WebSocket connection:', error)
+    startReconnectTimer()
   }
+}
+
+// 启动重连定时器
+const startReconnectTimer = () => {
+  if (!reconnectTimer) {
+    reconnectTimer = window.setInterval(() => {
+      console.log('Attempting to reconnect WebSocket...')
+      connectWebSocket()
+    }, RECONNECT_INTERVAL)
+  }
+}
+
+// 清除重连定时器
+const clearReconnectTimer = () => {
+  if (reconnectTimer) {
+    clearInterval(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
+// 组件挂载时连接WebSocket
+onMounted(() => {
+  connectWebSocket()
+})
 
   // 防抖发送更新
   const debouncedSendUpdate = debounce((content: string) => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'update', content }))
-    }
+    sendMessage({ type: 'update', content });
   }, 300)
 
   // 监听文档内容变化并发送到服务器
@@ -105,9 +169,7 @@ onMounted(() => {
     const textarea = event.target as HTMLTextAreaElement
     const position = textarea.selectionStart || 0
     
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'cursorMove', position }))
-    }
+    sendMessage({ type: 'cursorMove', position });
   }
 
   // 添加光标移动事件监听
@@ -126,8 +188,8 @@ onMounted(() => {
     if (ws) {
       ws.close()
     }
+    clearReconnectTimer()
   })
-})
 
 // 获取版本列表
 const fetchVersionList = async () => {
@@ -137,22 +199,24 @@ const fetchVersionList = async () => {
     versions.value = data
   } catch (error) {
     console.error('Error fetching version list:', error)
+    ElMessage.error('获取版本列表失败，请检查网络连接')
   }
 }
 
 // 版本回退
 const rollbackToVersion = () => {
-  if (!selectedVersion.value || !ws || ws.readyState !== WebSocket.OPEN) return
+  if (!selectedVersion.value) {
+    ElMessage({
+      message: '请选择要回退的版本',
+      type: 'warning'
+    });
+    return;
+  }
   
-  ws.send(JSON.stringify({ 
+  sendMessage({ 
     type: 'versionRollback', 
     versionId: selectedVersion.value
-  }))
-  
-  ElMessage({
-    message: `已回退到版本 v${selectedVersion.value}`,
-    type: 'success'
-  })
+  });
 }
 
 // 格式化时间戳
