@@ -1,13 +1,14 @@
-import express from 'express';
+import * as express from 'express';
 import type { Response } from 'express';
 import * as http from 'http';
-import WebSocket, { WebSocketServer } from 'ws';
+import * as WebSocket from 'ws';
+const WebSocketServer = WebSocket.Server;
 import * as fs from 'fs';
-import path from 'path';
-import cors from 'cors';
+import * as path from 'path';
+import * as cors from 'cors';
 
 // 声明__dirname
-const __dirname = path.dirname(new URL(import.meta.url).pathname);
+const __dirname = __filename ? path.dirname(__filename) : process.cwd();
 
 
 const app = express();
@@ -57,21 +58,37 @@ const generateUserId = (): string => {
 
 // 记录版本日志
 const logVersionChange = (message: string): void => {
-  const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} - ${message}\n`;
-  fs.appendFileSync(path.join(__dirname, '../server/logs/version.log'), logEntry);
+  try {
+    const timestamp = new Date().toISOString();
+    const logEntry = `${timestamp} - ${message}
+`;
+    const logPath = path.join(__dirname, '../server/logs');
+    
+    // 确保日志目录存在
+    if (!fs.existsSync(logPath)) {
+      fs.mkdirSync(logPath, { recursive: true });
+    }
+    
+    fs.appendFileSync(path.join(logPath, 'version.log'), logEntry);
+  } catch (error) {
+    console.error('Error writing to log file:', error);
+  }
 };
 
 // 保存版本快照
 const saveVersionSnapshot = (): void => {
-  versionCounter++;
-  const newVersion: Version = {
-    id: versionCounter,
-    content: documentContent,
-    timestamp: Date.now()
-  };
-  versions.push(newVersion);
-  logVersionChange(`Saved version v${versionCounter}`);
+  try {
+    versionCounter++;
+    const newVersion: Version = {
+      id: versionCounter,
+      content: documentContent,
+      timestamp: Date.now()
+    };
+    versions.push(newVersion);
+    logVersionChange(`Saved version v${versionCounter}`);
+  } catch (error) {
+    console.error('Error saving version snapshot:', error);
+  }
 };
 
 // 处理WebSocket连接
@@ -95,7 +112,7 @@ wss.on('connection', (ws: WebSocket) => {
 
   // 广播新用户加入
   wss.clients.forEach((client: WebSocket) => {
-    if (client.readyState === WebSocket.OPEN) {
+    if (client && client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify({ 
         type: 'userJoin', 
         userId: user.id,
@@ -123,42 +140,8 @@ wss.on('connection', (ws: WebSocket) => {
           }
           
           // 广播更新到所有客户端
-          wss.clients.forEach((client: WebSocket) => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify({ 
-                type: 'update', 
-                content: documentContent,
-                userId: user.id
-              }));
-            }
-          });
-          break;
-          
-        case 'cursorMove':
-          // 广播光标位置到所有客户端
-          wss.clients.forEach((client: WebSocket) => {
-            if (client.readyState === WebSocket.OPEN && client !== ws) {
-              client.send(JSON.stringify({ 
-                type: 'cursorMove', 
-                userId: user.id,
-                position: data.position,
-                color: user.color
-              }));
-            }
-          });
-          break;
-          
-        case 'versionRollback':
-          const versionId = parseInt(data.versionId);
-          const version = versions.find(v => v.id === versionId);
-          
-          if (version) {
-            documentContent = version.content;
-            editCounter = 0; // 重置编辑计数器
-            
-            // 广播回退到的版本内容
             wss.clients.forEach((client: WebSocket) => {
-              if (client.readyState === WebSocket.OPEN) {
+              if (client && client.readyState === WebSocket.OPEN) {
                 client.send(JSON.stringify({ 
                   type: 'update', 
                   content: documentContent,
@@ -166,8 +149,49 @@ wss.on('connection', (ws: WebSocket) => {
                 }));
               }
             });
+          break;
+          
+        case 'cursorMove':
+          // 广播光标位置到所有客户端
+            wss.clients.forEach((client: WebSocket) => {
+              if (client && client.readyState === WebSocket.OPEN && client !== ws) {
+                client.send(JSON.stringify({ 
+                  type: 'cursorMove', 
+                  userId: user.id,
+                  position: data.position,
+                  color: user.color
+                }));
+              }
+            });
+          break;
+          
+        case 'versionRollback':
+          const versionId = parseInt(data.versionId);
+          if (isNaN(versionId)) {
+            console.error('Invalid version ID:', data.versionId);
+            break;
+          }
+          
+          const version = versions.find(v => v.id === versionId);
+          
+          if (version) {
+            documentContent = version.content;
+            editCounter = 0; // 重置编辑计数器
+            
+            // 广播回退到的版本内容
+              wss.clients.forEach((client: WebSocket) => {
+                if (client && client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify({ 
+                    type: 'update', 
+                    content: documentContent,
+                    userId: user.id
+                  }));
+                }
+              });
             
             logVersionChange(`Rolled back to version v${versionId} by user ${user.id}`);
+          } else {
+            console.error('Version not found:', versionId);
           }
           break;
       }
@@ -187,7 +211,7 @@ wss.on('connection', (ws: WebSocket) => {
       
       // 广播用户离开
       wss.clients.forEach((client: WebSocket) => {
-        if (client.readyState === WebSocket.OPEN) {
+        if (client && client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify({ 
             type: 'userLeave', 
             userId: user.id
@@ -210,4 +234,14 @@ app.get('/api/versions', (_req: unknown, res: Response) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+// 处理未捕获的异常
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
+// 处理未处理的Promise拒绝
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
