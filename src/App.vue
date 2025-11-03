@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { ElInput, ElButton, ElSelect, ElOption, ElMessage, ElDialog } from 'element-plus'
-import { Timer, Document, UserFilled, CircleCheckFilled, CircleCloseFilled, Clock, DocumentDelete } from '@element-plus/icons-vue'
+import { Timer, Document, UserFilled, CircleCheckFilled, CircleCloseFilled, Clock, DocumentDelete, Lock } from '@element-plus/icons-vue'
 
 const documentContent = ref('')
 const userId = ref('')
@@ -23,20 +23,12 @@ const highlightedUserId = ref<string | null>(null)
 const systemLogs = ref<{ timestamp: string; message: string }[]>([])
 // 日志最大显示数量
 const MAX_LOGS = 10
+// 文档锁定状态
+const lockStatus = ref({ isLocked: false, holderId: null, autoReleaseAt: null, remainingTime: 0 })
+// 解锁定时器
+let unlockTimer: NodeJS.Timeout | null = null
 
-// 防抖函数
-const debounce = (func: Function, delay: number) => {
-  let timer: number | null = null
-  return (...args: any[]) => {
-    if (timer !== null) {
-      clearTimeout(timer)
-    }
-    timer = window.setTimeout(() => {
-      func.apply(null, args)
-      timer = null
-    }, delay)
-  }
-}
+
 
 // 处理JSON.stringify错误
 const safeStringify = (data: any): string => {
@@ -112,12 +104,16 @@ const connectWebSocket = () => {
         const data = JSON.parse(event.data)
         switch (data.type) {
           case 'init':
-            documentContent.value = data.content
-            userId.value = data.userId
-            userColor.value = data.userColor
-            // 获取当前在线用户列表
-            fetchOnlineUsers()
-            break
+        documentContent.value = data.content
+        userId.value = data.userId
+        userColor.value = data.userColor
+        // 获取当前在线用户列表
+        fetchOnlineUsers()
+        // 初始化锁定状态
+        if (data.lockStatus) {
+          lockStatus.value = data.lockStatus
+        }
+        break
           case 'update':
             documentContent.value = data.content
             break
@@ -157,8 +153,19 @@ const connectWebSocket = () => {
             addSystemLog(`用户 ${data.userId} 离开文档`)
             break
           case 'onlineUsers':
-            onlineUsers.value = data.users
-            break
+        onlineUsers.value = data.users
+        break
+      case 'lockStatus':
+        lockStatus.value = data.lockStatus
+        // 如果文档被锁定且不是当前用户锁定的，提示只读
+        if (data.lockStatus.isLocked && data.lockStatus.holderId !== userId.value) {
+          ElMessage.warning(`文档已被 ${data.lockStatus.holderId} 锁定，您现在处于只读模式`)
+          addSystemLog(`文档已被 ${data.lockStatus.holderId} 锁定，您现在处于只读模式`)
+        } else if (!data.lockStatus.isLocked && data.lockStatus.holderId === userId.value) {
+          ElMessage.success('您已释放文档锁定')
+          addSystemLog('您已释放文档锁定')
+        }
+        break
         }
       } catch (error) {
         console.error('Error processing WebSocket message:', error)
@@ -211,15 +218,42 @@ const clearReconnectTimer = () => {
 
 
 
-  // 防抖发送更新
-  const debouncedSendUpdate = debounce((content: string) => {
-    sendMessage({ type: 'update', content });
-  }, 300)
+  // 重置解锁定时器
+  const resetUnlockTimer = () => {
+    // 清除之前的定时器
+    if (unlockTimer) {
+      clearTimeout(unlockTimer)
+    }
+    
+    // 设置新的定时器，5秒后自动解锁
+    unlockTimer = setTimeout(() => {
+      sendMessage({ type: 'unlockRequest' })
+      unlockTimer = null
+    }, 5000)
+  }
 
-  // 监听文档内容变化并发送到服务器
-  watch(documentContent, (newContent) => {
-    debouncedSendUpdate(newContent)
-  })
+  // 处理文档内容变化
+    const handleDocumentChange = (value: string) => {
+      if (lockStatus.value.isLocked && lockStatus.value.holderId !== userId.value) {
+        ElMessage.warning('文档已被锁定，无法编辑')
+        return
+      }
+
+      // 如果是当前用户锁定的，重置解锁定时器
+      if (lockStatus.value.isLocked && lockStatus.value.holderId === userId.value) {
+        resetUnlockTimer()
+      } else {
+        // 如果还没有锁定，发送锁定请求
+        sendMessage({ type: 'lockRequest' })
+        // 设置解锁定时器
+        resetUnlockTimer()
+      }
+
+      sendMessage({ 
+        type: 'update', 
+        content: value
+      })
+    }
 
   // 监听光标位置变化
   const handleCursorMove = (event: Event) => {
@@ -236,7 +270,7 @@ const clearReconnectTimer = () => {
     textarea.addEventListener('keydown', handleCursorMove)
   }
 
-  // 组件卸载时移除事件监听
+  // 组件卸载时移除事件监听和清除定时器
   onUnmounted(() => {
     if (textarea) {
       textarea.removeEventListener('mousemove', handleCursorMove)
@@ -246,6 +280,10 @@ const clearReconnectTimer = () => {
       ws.close()
     }
     clearReconnectTimer()
+    // 清除解锁定时器
+    if (unlockTimer) {
+      clearTimeout(unlockTimer)
+    }
   })
 
 // 获取版本列表
@@ -479,6 +517,16 @@ onMounted(() => {
                   {{ id }}
                 </div>
               </div>
+              <div v-if="lockStatus.isLocked && lockStatus.holderId !== userId" class="lock-overlay">
+                <div class="lock-info">
+                  <el-icon :size="48" style="color: #1989fa; margin-bottom: 16px;">
+                    <Lock />
+                  </el-icon>
+                  <h3>文档已锁定</h3>
+                  <p>当前由 {{ lockStatus.holderId }} 编辑中</p>
+                  <p v-if="lockStatus.remainingTime > 0">自动解锁剩余时间: {{ Math.ceil(lockStatus.remainingTime / 1000) }}秒</p>
+                </div>
+              </div>
               <el-input
                 v-model="documentContent"
                 type="textarea"
@@ -486,14 +534,19 @@ onMounted(() => {
                 placeholder="开始编辑文档..."
                 resize="none"
                 class="document-input"
+                @input="handleDocumentChange"
+                @selectionchange="handleCursorMove"
+                :disabled="lockStatus.isLocked && lockStatus.holderId !== userId"
               />
             </div>
           </div>
 
-          <div class="current-user-info" #footer>
-          <span>您的ID: {{ userId }}</span>
-          <span>您的颜色: <span :style="{ color: userColor }" class="color-indicator">■</span></span>
-        </div>
+          <template #footer>
+            <div class="current-user-info">
+              <span>您的ID: {{ userId }}</span>
+              <span>您的颜色: <span :style="{ color: userColor }" class="color-indicator">■</span></span>
+            </div>
+          </template>
         </el-card>
       </el-main>
     </el-container>
@@ -713,6 +766,46 @@ body {
   padding: 10px;
   font-size: 16px;
   line-height: 1.5;
+}
+
+.lock-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: 6px;
+}
+
+.lock-info {
+  text-align: center;
+  padding: 24px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+.lock-info h3 {
+  margin: 0 0 8px 0;
+  color: #303133;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.lock-info p {
+  margin: 0 0 8px 0;
+  color: #606266;
+  font-size: 14px;
+}
+
+.lock-info p:last-child {
+  margin-bottom: 0;
 }
 
 .cursor {
