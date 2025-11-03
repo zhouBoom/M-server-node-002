@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>银行流水</title>
+  <style>
+    /* 表格样式 */
+    table {
+      border-collapse: collapse;
+      width: 600px;
+      font-family: Arial, sans-serif;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f2f2f2;
+    }
+
+    /* 按钮样式 */
+    button {
+      margin-top: 16px;
+      padding: 8px 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      border-radius: 4px;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    /* 选择框样式 */
+    .select-wrapper {
+      margin-bottom: 8px;
+      position: relative;
+      display: inline-block;
+    }
+
+    .select-wrapper select {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-color: transparent;
+      border: 1px solid #ddd;
+      padding: 8px;
+      font-size: 14px;
+      width: 120px;
+      cursor: pointer;
+      outline: none;
+      position: relative;
+      z-index: 2;
+    }
+
+    .select-wrapper::after {
+      content: '▼';
+      position: absolute;
+      top: 50%;
+      right: 8px;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: #888;
+      z-index: 1;
+    }
+
+    .select-wrapper::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      background-color: transparent;
+      pointer-events: none;
+      z-index: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <script src="https://static.nowcoder.com/ajax/libs/react/18.1.0/umd/react.production.min.js"></script>
+  <script src="https://static.nowcoder.com/ajax/libs/react-dom/18.1.0/umd/react-dom.production.min.js"></script>
+  <script src="https://static.nowcoder.com/ajax/libs/babel-standalone/6.26.0/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+
+    // 修改补充TableHeader组件，实现TableHeader组件缓存效果：当只修改bodyData，不触发TableHeader组件渲染
+    // 传入bodyData, 实现组件缓存
+    
+    const TableHeader = ({ headerData }) => {
+      console.log('TableHeader rendered');
+      return (
+        <thead>
+          <tr>
+            {headerData.map((header, index) => (
+              <th key={index}>{header}</th>
+            ))}
+          </tr>
+        </thead>
+      );
+    };
+
+    function TableBody({ bodyData }) {
+      function dealdate(dealdate) {
+        const date = new Date(dealdate)
+        const year = date.getFullYear()
+        let month = date.getMonth() + 1
+        month = month < 10 ? "0" + month : month
+        let day = date.getDate()
+        day = day < 10 ? "0" + day : day
+        return year + '-' + month + '-' + day;
+      }
+
+
+      return (
+        <tbody>
+          {bodyData.map((row) => (
+            <tr key={row.id}>
+              <td>{dealdate(row.date)}</td>
+              <td>{row.type}{row.amount}</td>
+            </tr>
+          ))}
+        </tbody>
+      );
+    }
+
+    function Table({ headerData, initialBodyData, lang }) {
+      const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+      const [bodyData, setBodyData] = useState([]);
+
+      useEffect(() => {
+        // 参考上下文，在此补全代码实现根据当前选中“年”数据，展示对应“年”的流水信息
+        const filteredData = initialBodyData.filter(item => {
+          return item.date.getFullYear() === selectedYear;
+        });
+        setBodyData(filteredData);
+      }, [selectedYear, initialBodyData]);
+
+      // 参考上下文，在下方填写代码，实现效果：
+      // 1. 定义一个memoizedData作为传递给TableHeader组件的数据
+      // 2. memoizedData数据根据lang取值，lang为'zh-CN'值为['日期', '金额（人民币）']，lang为‘English’值为 ['Date', 'Amount（RMB）']
+      // 3. 实现TableHeader组件缓存效果：当只修改bodyData，不触发TableHeader组件渲染
+      
+      const handleYearChange = (event) => {
+        const selectedYear = parseInt(event.target.value);
+        setSelectedYear(selectedYear);
+      };
+
+      return (
+        <div>
+          <div className="select-wrapper">
+            <select value={selectedYear} onChange={handleYearChange} class='year'>
+              <option value={2022}>2022年</option>
+              <option value={2023}>2023年</option>
+              <option value={2024}>2024年</option>
+            </select>
+          </div>
+          <table>
+            <TableHeader bodyData={bodyData} headerData={memoizedData}/>
+            <TableBody bodyData={bodyData} />
+          </table>
+        </div>
+      );
+    }
+
+    function App() {
+      const headerData = ['日期', '金额（人民币）'];
+      const initialBodyData = [
+        { id: 1, date: new Date('2022-01-01'), amount: 1000,type: '-' },
+        { id: 2, date: new Date('2022-01-05'), amount: 500,type: '-' },
+        { id: 3, date: new Date('2022-01-10'), amount: 2000,type: '+' },
+        { id: 4, date: new Date('2023-02-12'), amount: 800 ,type: '-'},
+        { id: 5, date: new Date('2023-03-20'), amount: 150,type: '+'  },
+        { id: 6, date: new Date('2024-01-02'), amount: 300 ,type: '-'},
+        { id: 7, date: new Date('2024-01-03'), amount: 2500,type: '+'  },
+        { id: 8, date: new Date('2024-01-04'), amount: 500 ,type: '-'},
+        { id: 9, date: new Date('2024-01-15'), amount: 500 ,type: '+' }
+      ];
+
+      const [lang, setLang] = useState('zh-CN');
+
+      return (
+        <div>
+          <div className="select-wrapper">
+            <select value={lang} onChange={(e) => setLang(e.target.value)} class='lang'>
+              <option value="zh-CN">中文</option>
+              <option value="English">English</option>
+            </select>
+          </div>
+          <Table headerData={headerData} initialBodyData={initialBodyData} lang={lang} />
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+
+</html>

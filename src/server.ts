@@ -1,14 +1,17 @@
-import * as express from 'express';
+import express from 'express';
 import type { Response } from 'express';
 import * as http from 'http';
-import * as WebSocket from 'ws';
-const WebSocketServer = WebSocket.Server;
+import WebSocket, { WebSocketServer } from 'ws';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as cors from 'cors';
+import cors from 'cors';
+import { fileURLToPath } from 'url';
 
-// 声明__dirname
-const __dirname = __filename ? path.dirname(__filename) : process.cwd();
+// 定义 __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+
 
 
 const app = express();
@@ -92,7 +95,7 @@ const saveVersionSnapshot = (): void => {
 };
 
 // 处理WebSocket连接
-wss.on('connection', (ws: WebSocket) => {
+wss.on('connection', (socket: WebSocket) => {
   console.log('New client connected');
 
   // 为新用户生成ID和颜色
@@ -100,10 +103,10 @@ wss.on('connection', (ws: WebSocket) => {
     id: generateUserId(),
     color: getRandomColor()
   };
-  users.set(ws, user);
+  users.set(socket, user);
 
   // 向新连接的客户端发送当前文档内容、用户ID和颜色
-  ws.send(JSON.stringify({ 
+  socket.send(JSON.stringify({ 
     type: 'init', 
     content: documentContent,
     userId: user.id,
@@ -122,10 +125,10 @@ wss.on('connection', (ws: WebSocket) => {
   });
 
   // 处理客户端消息
-  ws.on('message', (message: string) => {
+  socket.on('message', (message: string) => {
     try {
       const data = JSON.parse(message);
-      const user = users.get(ws);
+      const user = users.get(socket);
 
       if (!user) return;
 
@@ -154,7 +157,7 @@ wss.on('connection', (ws: WebSocket) => {
         case 'cursorMove':
           // 广播光标位置到所有客户端
             wss.clients.forEach((client: WebSocket) => {
-              if (client && client.readyState === WebSocket.OPEN && client !== ws) {
+              if (client && client.readyState === WebSocket.OPEN && client !== socket) {
                 client.send(JSON.stringify({ 
                   type: 'cursorMove', 
                   userId: user.id,
@@ -201,13 +204,13 @@ wss.on('connection', (ws: WebSocket) => {
   });
 
   // 处理连接关闭
-  ws.on('close', () => {
+  socket.on('close', () => {
     console.log('Client disconnected');
-    const user = users.get(ws);
+    const user = users.get(socket);
     
     if (user) {
       // 移除用户
-      users.delete(ws);
+      users.delete(socket);
       
       // 广播用户离开
       wss.clients.forEach((client: WebSocket) => {
@@ -220,6 +223,11 @@ wss.on('connection', (ws: WebSocket) => {
       });
     }
   });
+
+  // 处理连接错误
+  socket.on('error', (error: Error) => {
+    console.error('WebSocket error:', error);
+  });
 });
 
 // API接口：获取版本列表
@@ -228,6 +236,15 @@ app.get('/api/versions', (_req: unknown, res: Response) => {
     id: v.id,
     timestamp: v.timestamp
   })));
+});
+
+// API接口：获取在线用户列表
+app.get('/api/users', (_req: unknown, res: Response) => {
+  const onlineUsers = Array.from(users.values()).map(user => ({
+    id: user.id,
+    color: user.color
+  }));
+  res.json(onlineUsers);
 });
 
 // 启动服务器
