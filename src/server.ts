@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
+import { logError, withErrorHandling, withSyncErrorHandling } from './utils/errorLogger.js';
 
 // 定义 __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -61,7 +62,7 @@ const generateUserId = (): string => {
 
 // 记录版本日志
 const logVersionChange = (message: string): void => {
-  try {
+  withSyncErrorHandling(() => {
     const timestamp = new Date().toISOString();
     const logEntry = `${timestamp} - ${message}
 `;
@@ -73,14 +74,12 @@ const logVersionChange = (message: string): void => {
     }
     
     fs.appendFileSync(path.join(logPath, 'version.log'), logEntry);
-  } catch (error) {
-    console.error('Error writing to log file:', error);
-  }
+  }, 'Versioning.logVersionChange', { message });
 };
 
 // 保存版本快照
-const saveVersionSnapshot = (): void => {
-  try {
+const saveVersionSnapshot = async (): Promise<void> => {
+  await withErrorHandling(async () => {
     versionCounter++;
     const newVersion: Version = {
       id: versionCounter,
@@ -89,9 +88,7 @@ const saveVersionSnapshot = (): void => {
     };
     versions.push(newVersion);
     logVersionChange(`Saved version v${versionCounter}`);
-  } catch (error) {
-    console.error('Error saving version snapshot:', error);
-  }
+  }, 'Versioning.saveVersionSnapshot');
 };
 
 // 处理WebSocket连接
@@ -106,28 +103,38 @@ wss.on('connection', (socket: WebSocket) => {
   users.set(socket, user);
 
   // 向新连接的客户端发送当前文档内容、用户ID和颜色
-  socket.send(JSON.stringify({ 
-    type: 'init', 
-    content: documentContent,
-    userId: user.id,
-    userColor: user.color
-  }));
+  withSyncErrorHandling(() => {
+    socket.send(JSON.stringify({ 
+      type: 'init', 
+      content: documentContent,
+      userId: user.id,
+      userColor: user.color
+    }));
+  }, 'WebSocket.init', { userId: user.id });
 
   // 广播新用户加入
-  wss.clients.forEach((client: WebSocket) => {
-    if (client && client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify({ 
-        type: 'userJoin', 
-        userId: user.id,
-        userColor: user.color
-      }));
-    }
-  });
+  withSyncErrorHandling(() => {
+    wss.clients.forEach((client: WebSocket) => {
+      if (client && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ 
+          type: 'userJoin', 
+          userId: user.id,
+          userColor: user.color
+        }));
+      }
+    });
+  }, 'WebSocket.userJoin', { userId: user.id });
 
   // 处理客户端消息
   socket.on('message', (message: string) => {
-    try {
-      const data = JSON.parse(message);
+    withErrorHandling(async () => {
+      let data;
+      try {
+        data = JSON.parse(message);
+      } catch (error) {
+        logError(new Error('Invalid JSON received'), 'WebSocket.message', { message });
+        return;
+      }
       const user = users.get(socket);
 
       if (!user) return;
@@ -139,39 +146,39 @@ wss.on('connection', (socket: WebSocket) => {
           
           // 每10次编辑保存一个版本快照
           if (editCounter % VERSION_SAVE_INTERVAL === 0) {
-            saveVersionSnapshot();
+            await saveVersionSnapshot();
           }
           
           // 广播更新到所有客户端
-            wss.clients.forEach((client: WebSocket) => {
-              if (client && client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({ 
-                  type: 'update', 
-                  content: documentContent,
-                  userId: user.id
-                }));
-              }
-            });
+          wss.clients.forEach((client: WebSocket) => {
+            if (client && client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ 
+                type: 'update', 
+                content: documentContent,
+                userId: user.id
+              }));
+            }
+          });
           break;
           
         case 'cursorMove':
           // 广播光标位置到所有客户端
-            wss.clients.forEach((client: WebSocket) => {
-              if (client && client.readyState === WebSocket.OPEN && client !== socket) {
-                client.send(JSON.stringify({ 
-                  type: 'cursorMove', 
-                  userId: user.id,
-                  position: data.position,
-                  color: user.color
-                }));
-              }
-            });
+          wss.clients.forEach((client: WebSocket) => {
+            if (client && client.readyState === WebSocket.OPEN && client !== socket) {
+              client.send(JSON.stringify({ 
+                type: 'cursorMove', 
+                userId: user.id,
+                position: data.position,
+                color: user.color
+              }));
+            }
+          });
           break;
           
         case 'versionRollback':
           const versionId = parseInt(data.versionId);
           if (isNaN(versionId)) {
-            console.error('Invalid version ID:', data.versionId);
+            logError(new Error('Invalid version ID'), 'WebSocket.versionRollback', { versionId: data.versionId, userId: user.id });
             break;
           }
           
@@ -182,69 +189,79 @@ wss.on('connection', (socket: WebSocket) => {
             editCounter = 0; // 重置编辑计数器
             
             // 广播回退到的版本内容
-              wss.clients.forEach((client: WebSocket) => {
-                if (client && client.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify({ 
-                    type: 'update', 
-                    content: documentContent,
-                    userId: user.id
-                  }));
-                }
-              });
+            wss.clients.forEach((client: WebSocket) => {
+              if (client && client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({ 
+                  type: 'update', 
+                  content: documentContent,
+                  userId: user.id
+                }));
+              }
+            });
             
             logVersionChange(`Rolled back to version v${versionId} by user ${user.id}`);
           } else {
-            console.error('Version not found:', versionId);
+            logError(new Error('Version not found'), 'WebSocket.versionRollback', { versionId, userId: user.id });
           }
           break;
       }
-    } catch (error) {
-      console.error('Error processing message:', error);
-    }
+    }, 'WebSocket.message', { message });
   });
 
   // 处理连接关闭
   socket.on('close', () => {
-    console.log('Client disconnected');
-    const user = users.get(socket);
-    
-    if (user) {
-      // 移除用户
-      users.delete(socket);
+    withSyncErrorHandling(() => {
+      console.log('Client disconnected');
+      const user = users.get(socket);
       
-      // 广播用户离开
-      wss.clients.forEach((client: WebSocket) => {
-        if (client && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ 
-            type: 'userLeave', 
-            userId: user.id
-          }));
-        }
-      });
-    }
+      if (user) {
+        // 移除用户
+        users.delete(socket);
+        
+        // 广播用户离开
+        wss.clients.forEach((client: WebSocket) => {
+          if (client && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ 
+              type: 'userLeave', 
+              userId: user.id
+            }));
+          }
+        });
+      }
+    }, 'WebSocket.close');
   });
 
   // 处理连接错误
   socket.on('error', (error: Error) => {
-    console.error('WebSocket error:', error);
+    logError(error, 'WebSocket.error');
   });
 });
 
 // API接口：获取版本列表
 app.get('/api/versions', (_req: unknown, res: Response) => {
-  res.json(versions.map(v => ({
-    id: v.id,
-    timestamp: v.timestamp
-  })));
+  withErrorHandling(async () => {
+    res.json(versions.map(v => ({
+      id: v.id,
+      timestamp: v.timestamp
+    })));
+  }, 'API.getVersions')
+  .catch(() => {
+    res.status(500).json({ error: 'Internal server error' });
+  });
 });
 
 // API接口：获取在线用户列表
 app.get('/api/users', (_req: unknown, res: Response) => {
-  const onlineUsers = Array.from(users.values()).map(user => ({
-    id: user.id,
-    color: user.color
-  }));
-  res.json(onlineUsers);
+  withErrorHandling(async () => {
+    const onlineUsers = Array.from(users.values()).map(user => ({
+      id: user.id,
+      color: user.color
+    }));
+    res.json(onlineUsers);
+  }, 'API.getUsers')
+  .catch(() => {
+    res.status(500).json({ error: 'Internal server error' });
+  });
 });
 
 // 启动服务器
@@ -255,10 +272,13 @@ server.listen(PORT, () => {
 
 // 处理未捕获的异常
 process.on('uncaughtException', (error) => {
+  logError(error, 'Process.uncaughtException');
   console.error('Uncaught Exception:', error);
 });
 
 // 处理未处理的Promise拒绝
 process.on('unhandledRejection', (reason, promise) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  logError(error, 'Process.unhandledRejection', { promise });
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });

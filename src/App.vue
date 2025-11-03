@@ -13,6 +13,8 @@ const selectedVersion = ref('')
 let ws: WebSocket | null = null
 let reconnectTimer: number | null = null
 const RECONNECT_INTERVAL = 3000 // 3秒后尝试重连
+// 消息队列，用于存储断线期间的消息
+const messageQueue = ref<any[]>([])
 // 新增状态变量
 const onlineUsers = ref<{ id: string; color: string }[]>([])
 const wsConnected = ref(false)
@@ -57,12 +59,16 @@ const sendMessage = (message: any) => {
       } catch (error) {
         console.error('WebSocket send error:', error)
         ElMessage.error('消息发送失败，请检查网络连接')
+        // 将消息加入队列，重连后发送
+        messageQueue.value.push(message)
         startReconnectTimer()
       }
     }
   } else {
     console.error('WebSocket is not open')
-    ElMessage.error('WebSocket连接已断开，请稍候重试')
+    ElMessage.error('WebSocket连接已断开，消息将在重连后发送')
+    // 将消息加入队列，重连后发送
+    messageQueue.value.push(message)
     startReconnectTimer()
   }
 }
@@ -89,6 +95,16 @@ const connectWebSocket = () => {
       // 获取版本列表
       fetchVersionList()
       addSystemLog('已成功连接到服务器')
+      // 发送队列中的消息
+      if (messageQueue.value.length > 0) {
+        addSystemLog(`正在发送${messageQueue.value.length}条离线消息`)
+        // 复制队列并清空，避免在发送过程中添加新消息导致问题
+        const queueCopy = [...messageQueue.value]
+        messageQueue.value = []
+        queueCopy.forEach(msg => {
+          sendMessage(msg)
+        })
+      }
     }
 
     ws.onmessage = (event) => {
@@ -146,6 +162,9 @@ const connectWebSocket = () => {
         }
       } catch (error) {
         console.error('Error processing WebSocket message:', error)
+        ElMessage.error('处理服务器消息失败')
+        // 记录错误日志
+        console.error('Invalid JSON received:', event.data)
       }
     }
 
@@ -245,10 +264,14 @@ const fetchVersionList = async () => {
 const fetchOnlineUsers = async () => {
   try {
     const response = await fetch('http://localhost:3000/api/users')
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
     const data = await response.json()
     onlineUsers.value = data
   } catch (error) {
     console.error('Error fetching online users:', error)
+    ElMessage.error('获取在线用户列表失败，请检查网络连接')
   }
 }
 
