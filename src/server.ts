@@ -45,6 +45,186 @@ interface User {
 
 const users: Map<WebSocket, User> = new Map();
 
+// 文档锁机制
+interface Lock {
+  holderId: string;
+  holderSocket: WebSocket;
+  acquiredAt: number;
+  autoReleaseAt: number;
+  duration: number;
+}
+
+let currentLock: Lock | null = null;
+let lockTimer: NodeJS.Timeout | null = null;
+const LOCK_DURATION = 5000; // 5秒自动释放锁
+
+// 锁日志接口
+interface LockLog {
+  timestamp: string;
+  action: 'acquire' | 'release' | 'auto-release' | 'manual' | 'disconnect';
+  holderId: string;
+  duration: number;
+  autoReleaseAt: number;
+  reason?: string;
+}
+
+// 记录锁日志
+const logLockAction = (action: LockLog['action'], holderId: string, duration: number, autoReleaseAt: number, reason?: string) => {
+  withSyncErrorHandling(() => {
+    const logPath = path.join(__dirname, '../server');
+    const logFile = path.join(logPath, 'lock_log.json');
+    
+    // 确保日志目录存在
+    if (!fs.existsSync(logPath)) {
+      fs.mkdirSync(logPath, { recursive: true });
+    }
+    
+    // 读取现有日志
+    let logs: LockLog[] = [];
+    if (fs.existsSync(logFile)) {
+      const logContent = fs.readFileSync(logFile, 'utf-8');
+      if (logContent) {
+        try {
+          logs = JSON.parse(logContent);
+        } catch (parseError) {
+          console.error('Failed to parse lock log file:', parseError);
+          logs = [];
+        }
+      }
+    }
+    
+    // 创建新日志条目
+    const newLog: LockLog = {
+      timestamp: new Date().toISOString(),
+      action,
+      holderId,
+      duration,
+      autoReleaseAt,
+      reason
+    };
+    
+    // 添加新日志到开头
+    logs.unshift(newLog);
+    
+    // 写入日志文件
+    const logString = JSON.stringify(logs, null, 2);
+    fs.writeFileSync(logFile, logString, 'utf-8');
+  }, 'Lock.logLockAction', { action, holderId, duration, autoReleaseAt, reason });
+};
+
+// 获取文档锁
+const acquireLock = (socket: WebSocket, userId: string) => {
+  if (currentLock && currentLock.holderId !== userId) {
+    return false; // 锁已被其他用户持有
+  }
+  
+  // 清除之前的定时器
+  if (lockTimer) {
+    clearTimeout(lockTimer);
+  }
+  
+  const acquiredAt = Date.now();
+  const autoReleaseAt = acquiredAt + LOCK_DURATION;
+  
+  currentLock = {
+    holderId: userId,
+    holderSocket: socket,
+    acquiredAt,
+    autoReleaseAt,
+    duration: LOCK_DURATION
+  };
+  
+  // 设置自动释放定时器
+  lockTimer = setTimeout(() => {
+    releaseLock(userId, 'auto-release');
+  }, LOCK_DURATION);
+  
+  // 记录锁日志
+  logLockAction('acquire', userId, LOCK_DURATION, autoReleaseAt);
+  
+  // 广播锁状态变化
+  broadcastLockStatus();
+  
+  return true;
+};
+
+// 释放文档锁
+const releaseLock = (userId: string, reason: 'manual' | 'auto-release' | 'disconnect') => {
+  if (!currentLock || currentLock.holderId !== userId) {
+    return false; // 没有锁或锁不属于该用户
+  }
+  
+  // 清除定时器
+  if (lockTimer) {
+    clearTimeout(lockTimer);
+    lockTimer = null;
+  }
+  
+  // 计算实际持有时间
+  const actualDuration = Date.now() - currentLock.acquiredAt;
+  
+  // 记录锁日志
+  logLockAction(reason, userId, actualDuration, currentLock.autoReleaseAt, reason);
+  
+  // 释放锁
+  currentLock = null;
+  
+  // 广播锁状态变化
+  broadcastLockStatus();
+  
+  return true;
+};
+
+// 广播锁状态
+const broadcastLockStatus = () => {
+  wss.clients.forEach((client: WebSocket) => {
+    if (client && client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({
+        type: 'lockStatus',
+        isLocked: !!currentLock,
+        holderId: currentLock?.holderId || null,
+        autoReleaseAt: currentLock?.autoReleaseAt || null,
+        remainingTime: currentLock ? Math.max(0, currentLock.autoReleaseAt - Date.now()) : 0
+      }));
+    }
+  });
+};
+
+// 检查用户是否持有锁
+const isLockHolder = (userId: string) => {
+  return currentLock && currentLock.holderId === userId;
+};
+
+// 检查用户是否可以编辑
+const canEdit = (userId: string) => {
+  return !currentLock || isLockHolder(userId);
+};
+
+// 重置锁定时器（用户有操作时调用）
+const resetLockTimer = (userId: string) => {
+  if (!currentLock || currentLock.holderId !== userId) {
+    return false; // 没有锁或锁不属于该用户
+  }
+  
+  // 清除之前的定时器
+  if (lockTimer) {
+    clearTimeout(lockTimer);
+  }
+  
+  // 更新自动释放时间
+  currentLock.autoReleaseAt = Date.now() + LOCK_DURATION;
+  
+  // 设置新的定时器
+  lockTimer = setTimeout(() => {
+    releaseLock(userId, 'auto-release');
+  }, LOCK_DURATION);
+  
+  // 广播锁状态变化（更新剩余时间）
+  broadcastLockStatus();
+  
+  return true;
+};
+
 // 生成随机颜色
 const getRandomColor = (): string => {
   const letters = '0123456789ABCDEF';
@@ -102,13 +282,19 @@ wss.on('connection', (socket: WebSocket) => {
   };
   users.set(socket, user);
 
-  // 向新连接的客户端发送当前文档内容、用户ID和颜色
+  // 向新连接的客户端发送当前文档内容、用户ID、颜色和锁状态
   withSyncErrorHandling(() => {
     socket.send(JSON.stringify({ 
       type: 'init', 
       content: documentContent,
       userId: user.id,
-      userColor: user.color
+      userColor: user.color,
+      lockStatus: {
+        isLocked: !!currentLock,
+        holderId: currentLock?.holderId || null,
+        autoReleaseAt: currentLock?.autoReleaseAt || null,
+        remainingTime: currentLock ? Math.max(0, currentLock.autoReleaseAt - Date.now()) : 0
+      }
     }));
   }, 'WebSocket.init', { userId: user.id });
 
@@ -140,7 +326,40 @@ wss.on('connection', (socket: WebSocket) => {
       if (!user) return;
 
       switch (data.type) {
+        case 'lockRequest':
+          const lockAcquired = acquireLock(socket, user.id);
+          socket.send(JSON.stringify({
+            type: 'lockResponse',
+            success: lockAcquired,
+            isLocked: !!currentLock,
+            holderId: currentLock?.holderId || null,
+            autoReleaseAt: currentLock?.autoReleaseAt || null,
+            remainingTime: currentLock ? Math.max(0, currentLock.autoReleaseAt - Date.now()) : 0
+          }));
+          break;
+          
+        case 'unlockRequest':
+          const lockReleased = releaseLock(user.id, 'manual');
+          socket.send(JSON.stringify({
+            type: 'unlockResponse',
+            success: lockReleased,
+            isLocked: !!currentLock,
+            holderId: currentLock?.holderId || null
+          }));
+          break;
+          
         case 'update':
+          // 检查用户是否有权限编辑
+          if (!canEdit(user.id)) {
+            socket.send(JSON.stringify({
+              type: 'editDenied',
+              message: '文档已被其他用户锁定',
+              holderId: currentLock?.holderId || null,
+              remainingTime: currentLock ? Math.max(0, currentLock.autoReleaseAt - Date.now()) : 0
+            }));
+            break;
+          }
+          
           documentContent = data.content;
           editCounter++;
           
@@ -148,6 +367,9 @@ wss.on('connection', (socket: WebSocket) => {
           if (editCounter % VERSION_SAVE_INTERVAL === 0) {
             await saveVersionSnapshot();
           }
+          
+          // 重置锁定时器
+          resetLockTimer(user.id);
           
           // 广播更新到所有客户端
           wss.clients.forEach((client: WebSocket) => {
@@ -176,6 +398,17 @@ wss.on('connection', (socket: WebSocket) => {
           break;
           
         case 'versionRollback':
+          // 检查用户是否有权限编辑
+          if (!canEdit(user.id)) {
+            socket.send(JSON.stringify({
+              type: 'editDenied',
+              message: '文档已被其他用户锁定',
+              holderId: currentLock?.holderId || null,
+              remainingTime: currentLock ? Math.max(0, currentLock.autoReleaseAt - Date.now()) : 0
+            }));
+            break;
+          }
+          
           const versionId = parseInt(data.versionId);
           if (isNaN(versionId)) {
             logError(new Error('Invalid version ID'), 'WebSocket.versionRollback', { versionId: data.versionId, userId: user.id });
@@ -187,6 +420,9 @@ wss.on('connection', (socket: WebSocket) => {
           if (version) {
             documentContent = version.content;
             editCounter = 0; // 重置编辑计数器
+            
+            // 重置锁定时器
+            resetLockTimer(user.id);
             
             // 广播回退到的版本内容
             wss.clients.forEach((client: WebSocket) => {
@@ -215,6 +451,11 @@ wss.on('connection', (socket: WebSocket) => {
       const user = users.get(socket);
       
       if (user) {
+        // 如果用户持有锁，释放锁
+        if (currentLock && currentLock.holderId === user.id) {
+          releaseLock(user.id, 'disconnect');
+        }
+        
         // 移除用户
         users.delete(socket);
         
