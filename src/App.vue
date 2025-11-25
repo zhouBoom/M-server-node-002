@@ -253,6 +253,10 @@ const clearReconnectTimer = () => {
     }, 5000)
   }
 
+  // 编辑节流定时器
+  let editThrottleTimer: NodeJS.Timeout | null = null
+  const EDIT_THROTTLE_DELAY = 300 // 300ms节流
+
   // 处理文档内容变化
     const handleDocumentChange = (value: string) => {
       if (lockStatus.value.isLocked && lockStatus.value.holderId !== userId.value) {
@@ -270,10 +274,16 @@ const clearReconnectTimer = () => {
         resetUnlockTimer()
       }
 
-      sendMessage({ 
-        type: 'update', 
-        content: value
-      })
+      // 编辑节流
+      if (editThrottleTimer) {
+        clearTimeout(editThrottleTimer)
+      }
+      editThrottleTimer = setTimeout(() => {
+        sendMessage({ 
+          type: 'update', 
+          content: value
+        })
+      }, EDIT_THROTTLE_DELAY)
     }
 
   // 监听光标位置变化
@@ -304,6 +314,10 @@ const clearReconnectTimer = () => {
     // 清除解锁定时器
     if (unlockTimer) {
       clearTimeout(unlockTimer)
+    }
+    // 清除编辑节流定时器
+    if (editThrottleTimer) {
+      clearTimeout(editThrottleTimer)
     }
   })
 
