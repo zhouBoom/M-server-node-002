@@ -2,11 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-// 获取当前文件的路径和目录
+// 错误日志配置
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// 错误日志配置
 const ERROR_LOG_FILE = path.join(__dirname, '../../logs/error_logs.json');
 const MAX_LOG_SIZE = 1024 * 1024; // 1MB
 const MAX_LOG_ENTRIES = 1000; // 最多保留1000条日志
