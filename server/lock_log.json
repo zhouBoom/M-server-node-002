@@ -1,0 +1,52 @@
+[
+  {
+    "timestamp": "2025-11-25T04:57:56.623Z",
+    "action": "manual",
+    "holderId": "dyiav6cpscbxl0rgu8u4da",
+    "duration": 5001,
+    "autoReleaseAt": 1764046676623,
+    "reason": "manual"
+  },
+  {
+    "timestamp": "2025-11-25T04:57:51.622Z",
+    "action": "acquire",
+    "holderId": "dyiav6cpscbxl0rgu8u4da",
+    "duration": 5000,
+    "autoReleaseAt": 1764046676622
+  },
+  {
+    "timestamp": "2025-11-25T04:57:51.582Z",
+    "action": "acquire",
+    "holderId": "dyiav6cpscbxl0rgu8u4da",
+    "duration": 5000,
+    "autoReleaseAt": 1764046676582
+  },
+  {
+    "timestamp": "2025-11-25T04:57:51.518Z",
+    "action": "acquire",
+    "holderId": "dyiav6cpscbxl0rgu8u4da",
+    "duration": 5000,
+    "autoReleaseAt": 1764046676517
+  },
+  {
+    "timestamp": "2025-11-25T04:57:51.355Z",
+    "action": "acquire",
+    "holderId": "dyiav6cpscbxl0rgu8u4da",
+    "duration": 5000,
+    "autoReleaseAt": 1764046676355
+  },
+  {
+    "timestamp": "2025-11-25T04:57:51.256Z",
+    "action": "acquire",
+    "holderId": "dyiav6cpscbxl0rgu8u4da",
+    "duration": 5000,
+    "autoReleaseAt": 1764046676256
+  },
+  {
+    "timestamp": "2025-11-25T04:57:51.239Z",
+    "action": "acquire",
+    "holderId": "dyiav6cpscbxl0rgu8u4da",
+    "duration": 5000,
+    "autoReleaseAt": 1764046676238
+  }
+]

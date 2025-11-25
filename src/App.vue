@@ -41,6 +41,17 @@ const safeStringify = (data: any): string => {
   }
 }
 
+// 处理JSON.parse错误
+const safeParse = (data: string): any => {
+  try {
+    return JSON.parse(data)
+  } catch (error) {
+    console.error('JSON.parse error:', error)
+    ElMessage.error('数据解析失败，请检查服务器响应')
+    return null
+  }
+}
+
 // 发送WebSocket消息
 const sendMessage = (message: any) => {
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -101,77 +112,87 @@ const connectWebSocket = () => {
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data)
+        const data = safeParse(event.data)
+        if (!data) return
+        
         switch (data.type) {
           case 'init':
-        documentContent.value = data.content
-        userId.value = data.userId
-        userColor.value = data.userColor
-        // 获取当前在线用户列表
-        fetchOnlineUsers()
-        // 初始化锁定状态
-        if (data.lockStatus) {
-          lockStatus.value = data.lockStatus
-        }
-        break
+            if (data.content !== undefined) documentContent.value = data.content
+            if (data.userId !== undefined) userId.value = data.userId
+            if (data.userColor !== undefined) userColor.value = data.userColor
+            // 获取当前在线用户列表
+            fetchOnlineUsers()
+            // 初始化锁定状态
+            if (data.lockStatus) {
+              lockStatus.value = data.lockStatus
+            }
+            break
           case 'update':
-            documentContent.value = data.content
+            if (data.content !== undefined) documentContent.value = data.content
             break
           case 'cursorMove':
-            cursorPositions.value[data.userId] = {
-              position: data.position,
-              color: data.color
+            if (data.userId !== undefined && data.position !== undefined && data.color !== undefined) {
+              cursorPositions.value[data.userId] = {
+                position: data.position,
+                color: data.color
+              }
+              // 5秒后移除光标位置
+              setTimeout(() => {
+                if (cursorPositions.value[data.userId]) {
+                  delete cursorPositions.value[data.userId]
+                }
+              }, 5000)
             }
-            // 5秒后移除光标位置
-            setTimeout(() => {
+            break
+          case 'userJoin':
+            if (data.userId !== undefined && data.userColor !== undefined) {
+              onlineUsers.value.push({ id: data.userId, color: data.userColor })
+              ElMessage({
+                message: `用户 ${data.userId} 加入`,
+                type: 'success'
+              })
+              addSystemLog(`用户 ${data.userId} 加入文档`)
+            }
+            break
+          case 'userLeave':
+            if (data.userId !== undefined) {
+              onlineUsers.value = onlineUsers.value.filter(user => user.id !== data.userId)
+              ElMessage({
+                message: `用户 ${data.userId} 离开`,
+                type: 'warning'
+              })
               if (cursorPositions.value[data.userId]) {
                 delete cursorPositions.value[data.userId]
               }
-            }, 5000)
-            break
-          case 'userJoin':
-            onlineUsers.value.push({ id: data.userId, color: data.color })
-            ElMessage({
-              message: `用户 ${data.userId} 加入`,
-              type: 'success'
-            })
-            addSystemLog(`用户 ${data.userId} 加入文档`)
-            break
-          case 'userLeave':
-            onlineUsers.value = onlineUsers.value.filter(user => user.id !== data.userId)
-            ElMessage({
-              message: `用户 ${data.userId} 离开`,
-              type: 'warning'
-            })
-            if (cursorPositions.value[data.userId]) {
-              delete cursorPositions.value[data.userId]
+              // 如果高亮的用户离开，取消高亮
+              if (highlightedUserId.value === data.userId) {
+                highlightedUserId.value = null
+              }
+              addSystemLog(`用户 ${data.userId} 离开文档`)
             }
-            // 如果高亮的用户离开，取消高亮
-            if (highlightedUserId.value === data.userId) {
-              highlightedUserId.value = null
-            }
-            addSystemLog(`用户 ${data.userId} 离开文档`)
             break
           case 'onlineUsers':
-        onlineUsers.value = data.users
-        break
-      case 'lockStatus':
-        lockStatus.value = data.lockStatus
-        // 如果文档被锁定且不是当前用户锁定的，提示只读
-        if (data.lockStatus.isLocked && data.lockStatus.holderId !== userId.value) {
-          ElMessage.warning(`文档已被 ${data.lockStatus.holderId} 锁定，您现在处于只读模式`)
-          addSystemLog(`文档已被 ${data.lockStatus.holderId} 锁定，您现在处于只读模式`)
-        } else if (!data.lockStatus.isLocked && data.lockStatus.holderId === userId.value) {
-          ElMessage.success('您已释放文档锁定')
-          addSystemLog('您已释放文档锁定')
-        }
-        break
+            if (data.users !== undefined) onlineUsers.value = data.users
+            break
+          case 'lockStatus':
+            if (data.lockStatus) {
+              lockStatus.value = data.lockStatus
+              // 如果文档被锁定且不是当前用户锁定的，提示只读
+              if (data.lockStatus.isLocked && data.lockStatus.holderId !== userId.value) {
+                ElMessage.warning(`文档已被 ${data.lockStatus.holderId} 锁定，您现在处于只读模式`)
+                addSystemLog(`文档已被 ${data.lockStatus.holderId} 锁定，您现在处于只读模式`)
+              } else if (!data.lockStatus.isLocked && data.lockStatus.holderId === userId.value) {
+                ElMessage.success('您已释放文档锁定')
+                addSystemLog('您已释放文档锁定')
+              }
+            }
+            break
         }
       } catch (error) {
         console.error('Error processing WebSocket message:', error)
         ElMessage.error('处理服务器消息失败')
         // 记录错误日志
-        console.error('Invalid JSON received:', event.data)
+        console.error('Invalid message received:', event.data)
       }
     }
 
