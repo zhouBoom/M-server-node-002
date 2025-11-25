@@ -21,6 +21,8 @@ let versionCounter = 0;
 const VERSION_SAVE_INTERVAL = 10;
 let editCounter = 0;
 const users = new Map();
+const disconnectedUsers = new Map();
+const DISCONNECT_TIMEOUT = 30000; // 30秒后清除断开连接的用户
 let currentLock = null;
 let lockTimer = null;
 const LOCK_DURATION = 5000; // 5秒自动释放锁
@@ -192,22 +194,42 @@ const saveVersionSnapshot = async () => {
         logVersionChange(`Saved version v${versionCounter}`);
     }, 'Versioning.saveVersionSnapshot');
 };
+// 超时与重试控制
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY = 1000; // 1秒
 // 处理WebSocket连接
 wss.on('connection', (socket) => {
     console.log('New client connected');
-    // 为新用户生成ID和颜色
-    const user = {
-        id: generateUserId(),
-        color: getRandomColor()
-    };
+    let retryAttempts = 0;
+    // 检查是否有断开连接的用户可以恢复
+    let user;
+    for (const [userId, disconnectedUser] of disconnectedUsers.entries()) {
+        // 可以根据需要添加更复杂的恢复逻辑，比如检查用户ID或其他标识
+        user = disconnectedUser;
+        disconnectedUsers.delete(userId);
+        break;
+    }
+    // 如果没有可恢复的用户，创建新用户
+    if (!user) {
+        user = {
+            id: generateUserId(),
+            color: getRandomColor(),
+            lastActive: Date.now()
+        };
+    }
+    else {
+        // 更新恢复用户的最后活动时间
+        user.lastActive = Date.now();
+    }
     users.set(socket, user);
-    // 向新连接的客户端发送当前文档内容、用户ID、颜色和锁状态
+    // 向新连接的客户端发送当前文档内容、用户ID、颜色、样式和锁状态
     withSyncErrorHandling(() => {
         socket.send(JSON.stringify({
             type: 'init',
             content: documentContent,
             userId: user.id,
             userColor: user.color,
+            userStyle: user.style,
             lockStatus: {
                 isLocked: !!currentLock,
                 holderId: currentLock?.holderId || null,
@@ -274,7 +296,19 @@ wss.on('connection', (socket) => {
                         }));
                         break;
                     }
-                    documentContent = data.content;
+                    // 冲突自动合并逻辑
+                    // 假设文档内容按换行符分割成段落
+                    const currentParagraphs = documentContent.split('\n');
+                    const incomingParagraphs = data.content.split('\n');
+                    const mergedParagraphs = [...currentParagraphs];
+                    // 合并不同段落的修改，保留最新修改的段落
+                    for (let i = 0; i < incomingParagraphs.length; i++) {
+                        if (i >= mergedParagraphs.length || incomingParagraphs[i] !== mergedParagraphs[i]) {
+                            mergedParagraphs[i] = incomingParagraphs[i];
+                        }
+                    }
+                    // 更新文档内容
+                    documentContent = mergedParagraphs.join('\n');
                     editCounter++;
                     // 每10次编辑保存一个版本快照
                     if (editCounter % VERSION_SAVE_INTERVAL === 0) {
@@ -344,6 +378,20 @@ wss.on('connection', (socket) => {
                         logError(new Error('Version not found'), 'WebSocket.versionRollback', { versionId, userId: user.id });
                     }
                     break;
+                case 'styleChange':
+                    // 更新用户样式
+                    user.style = data.style;
+                    // 广播样式变更到所有客户端
+                    wss.clients.forEach((client) => {
+                        if (client && client.readyState === WebSocket.OPEN) {
+                            client.send(JSON.stringify({
+                                type: 'styleChange',
+                                userId: user.id,
+                                style: data.style
+                            }));
+                        }
+                    });
+                    break;
             }
         }, 'WebSocket.message', { message });
     });
@@ -357,6 +405,8 @@ wss.on('connection', (socket) => {
                 if (currentLock && currentLock.holderId === user.id) {
                     releaseLock(user.id, 'disconnect');
                 }
+                // 将用户添加到断开连接用户列表
+                disconnectedUsers.set(user.id, user);
                 // 移除用户
                 users.delete(socket);
                 // 广播用户离开
@@ -368,6 +418,10 @@ wss.on('connection', (socket) => {
                         }));
                     }
                 });
+                // 设置定时器，30秒后清除断开连接的用户
+                setTimeout(() => {
+                    disconnectedUsers.delete(user.id);
+                }, DISCONNECT_TIMEOUT);
             }
         }, 'WebSocket.close');
     });

@@ -42,6 +42,14 @@ interface User {
   id: string;
   color: string;
   lastActive: number;
+  style?: {
+    fontFamily?: string;
+    fontSize?: string;
+    lineHeight?: string;
+    backgroundColor?: string;
+    border?: string;
+    padding?: string;
+  };
 }
 
 const users: Map<WebSocket, User> = new Map();
@@ -306,13 +314,14 @@ wss.on('connection', (socket: WebSocket) => {
   
   users.set(socket, user);
 
-  // 向新连接的客户端发送当前文档内容、用户ID、颜色和锁状态
+  // 向新连接的客户端发送当前文档内容、用户ID、颜色、样式和锁状态
   withSyncErrorHandling(() => {
     socket.send(JSON.stringify({ 
       type: 'init', 
       content: documentContent,
       userId: user.id,
       userColor: user.color,
+      userStyle: user.style,
       lockStatus: {
         isLocked: !!currentLock,
         holderId: currentLock?.holderId || null,
@@ -438,8 +447,8 @@ wss.on('connection', (socket: WebSocket) => {
         case 'versionRollback':
           // 检查用户是否有权限编辑
           if (!canEdit(user.id)) {
-            socket.send(JSON.stringify({
-              type: 'editDenied',
+            socket.send(JSON.stringify({ 
+              type: 'editDenied', 
               message: '文档已被其他用户锁定',
               holderId: currentLock?.holderId || null,
               remainingTime: currentLock ? Math.max(0, currentLock.autoReleaseAt - Date.now()) : 0
@@ -477,6 +486,22 @@ wss.on('connection', (socket: WebSocket) => {
           } else {
             logError(new Error('Version not found'), 'WebSocket.versionRollback', { versionId, userId: user.id });
           }
+          break;
+        
+        case 'styleChange':
+          // 更新用户样式
+          user.style = data.style;
+          
+          // 广播样式变更到所有客户端
+          wss.clients.forEach((client: WebSocket) => {
+            if (client && client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ 
+                type: 'styleChange', 
+                userId: user.id,
+                style: data.style
+              }));
+            }
+          });
           break;
       }
     }, 'WebSocket.message', { message });

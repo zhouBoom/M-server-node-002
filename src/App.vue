@@ -6,6 +6,14 @@ import { Timer, Document, UserFilled, CircleCheckFilled, CircleCloseFilled, Cloc
 const documentContent = ref('')
 const userId = ref('')
 const userColor = ref('')
+const currentUserStyle = ref({
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '16px',
+  lineHeight: '1.5',
+  backgroundColor: '#ffffff',
+  border: '1px solid #cccccc',
+  padding: '10px'
+})
 const cursorPositions = ref<Record<string, { position: number; color: string }>>({})
 const versions = ref<{ id: number; timestamp: number }[]>([])
 const selectedVersion = ref('')
@@ -120,6 +128,9 @@ const connectWebSocket = () => {
             if (data.content !== undefined) documentContent.value = data.content
             if (data.userId !== undefined) userId.value = data.userId
             if (data.userColor !== undefined) userColor.value = data.userColor
+            if (data.userStyle !== undefined) {
+              currentUserStyle.value = { ...data.userStyle }
+            }
             // 获取当前在线用户列表
             fetchOnlineUsers()
             // 初始化锁定状态
@@ -142,6 +153,15 @@ const connectWebSocket = () => {
                   delete cursorPositions.value[data.userId]
                 }
               }, 5000)
+            }
+            break
+          case 'styleChange':
+            if (data.userId !== undefined && data.style !== undefined) {
+              // 这里可以保存其他用户的样式，以便后续使用
+              // 目前我们只需要同步当前用户的样式到编辑框
+              if (data.userId === userId.value) {
+                currentUserStyle.value = { ...data.style }
+              }
             }
             break
           case 'userJoin':
@@ -421,6 +441,15 @@ const getContrastColor = (color: string) => {
   return brightness > 128 ? '#000000' : '#ffffff'
 }
 
+// 处理样式变化
+const handleStyleChange = () => {
+  // 发送样式变更消息到服务器
+  sendMessage({
+    type: 'styleChange',
+    style: currentUserStyle.value
+  })
+}
+
 // 组件挂载时连接WebSocket
 onMounted(() => {
   connectWebSocket()
@@ -534,6 +563,63 @@ onMounted(() => {
           </template>
 
           <div class="editor-container">
+            <!-- 样式设置面板 -->
+            <div class="style-panel">
+              <h3>样式设置</h3>
+              <div class="style-group">
+                <label>字体:</label>
+                <el-select v-model="currentUserStyle.fontFamily" @change="handleStyleChange">
+                  <el-option label="Arial" value="Arial, sans-serif"></el-option>
+                  <el-option label="Times New Roman" value="Times New Roman, serif"></el-option>
+                  <el-option label="Courier New" value="Courier New, monospace"></el-option>
+                  <el-option label="Verdana" value="Verdana, sans-serif"></el-option>
+                </el-select>
+              </div>
+              <div class="style-group">
+                <label>字号:</label>
+                <el-select v-model="currentUserStyle.fontSize" @change="handleStyleChange">
+                  <el-option label="12px" value="12px"></el-option>
+                  <el-option label="14px" value="14px"></el-option>
+                  <el-option label="16px" value="16px"></el-option>
+                  <el-option label="18px" value="18px"></el-option>
+                  <el-option label="20px" value="20px"></el-option>
+                </el-select>
+              </div>
+              <div class="style-group">
+                <label>行高:</label>
+                <el-select v-model="currentUserStyle.lineHeight" @change="handleStyleChange">
+                  <el-option label="1.0" value="1.0"></el-option>
+                  <el-option label="1.2" value="1.2"></el-option>
+                  <el-option label="1.5" value="1.5"></el-option>
+                  <el-option label="1.8" value="1.8"></el-option>
+                  <el-option label="2.0" value="2.0"></el-option>
+                </el-select>
+              </div>
+              <div class="style-group">
+                <label>背景色:</label>
+                <el-color-picker v-model="currentUserStyle.backgroundColor" @change="handleStyleChange"></el-color-picker>
+              </div>
+              <div class="style-group">
+                <label>边框:</label>
+                <el-select v-model="currentUserStyle.border" @change="handleStyleChange">
+                  <el-option label="无" value="none"></el-option>
+                  <el-option label="1px 实线" value="1px solid #cccccc"></el-option>
+                  <el-option label="2px 实线" value="2px solid #999999"></el-option>
+                  <el-option label="1px 虚线" value="1px dashed #cccccc"></el-option>
+                </el-select>
+              </div>
+              <div class="style-group">
+                <label>内边距:</label>
+                <el-select v-model="currentUserStyle.padding" @change="handleStyleChange">
+                  <el-option label="5px" value="5px"></el-option>
+                  <el-option label="10px" value="10px"></el-option>
+                  <el-option label="15px" value="15px"></el-option>
+                  <el-option label="20px" value="20px"></el-option>
+                </el-select>
+              </div>
+            </div>
+            
+            <!-- 编辑框 -->
             <div class="editor-wrapper">
               <div class="cursor-overlay">
                 <div
@@ -572,6 +658,7 @@ onMounted(() => {
                 @input="handleDocumentChange"
                 @selectionchange="handleCursorMove"
                 :disabled="lockStatus.isLocked && lockStatus.holderId !== userId"
+                :style="currentUserStyle"
               />
             </div>
           </div>
@@ -782,11 +869,38 @@ body {
 
 /* 编辑器样式 */
 .editor-container {
-  position: relative;
+  display: flex;
+  gap: 20px;
   padding: 20px;
 }
 
+.style-panel {
+  width: 250px;
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+
+.style-panel h3 {
+  margin: 0 0 15px 0;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.style-group {
+  margin-bottom: 15px;
+}
+
+.style-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .editor-wrapper {
+  flex: 1;
   position: relative;
 }
 
