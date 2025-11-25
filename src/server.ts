@@ -41,9 +41,12 @@ let editCounter = 0;
 interface User {
   id: string;
   color: string;
+  lastActive: number;
 }
 
 const users: Map<WebSocket, User> = new Map();
+const disconnectedUsers: Map<string, User> = new Map();
+const DISCONNECT_TIMEOUT = 30000; // 30秒后清除断开连接的用户
 
 // 文档锁机制
 interface Lock {
@@ -271,15 +274,36 @@ const saveVersionSnapshot = async (): Promise<void> => {
   }, 'Versioning.saveVersionSnapshot');
 };
 
+// 超时与重试控制
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY = 1000; // 1秒
+
 // 处理WebSocket连接
 wss.on('connection', (socket: WebSocket) => {
   console.log('New client connected');
+  let retryAttempts = 0;
 
-  // 为新用户生成ID和颜色
-  const user: User = {
-    id: generateUserId(),
-    color: getRandomColor()
-  };
+  // 检查是否有断开连接的用户可以恢复
+  let user: User | undefined;
+  for (const [userId, disconnectedUser] of disconnectedUsers.entries()) {
+    // 可以根据需要添加更复杂的恢复逻辑，比如检查用户ID或其他标识
+    user = disconnectedUser;
+    disconnectedUsers.delete(userId);
+    break;
+  }
+  
+  // 如果没有可恢复的用户，创建新用户
+  if (!user) {
+    user = {
+      id: generateUserId(),
+      color: getRandomColor(),
+      lastActive: Date.now()
+    };
+  } else {
+    // 更新恢复用户的最后活动时间
+    user.lastActive = Date.now();
+  }
+  
   users.set(socket, user);
 
   // 向新连接的客户端发送当前文档内容、用户ID、颜色和锁状态
@@ -351,7 +375,7 @@ wss.on('connection', (socket: WebSocket) => {
         case 'update':
           // 检查用户是否有权限编辑
           if (!canEdit(user.id)) {
-            socket.send(JSON.stringify({
+            socket.send(JSON.stringify({ 
               type: 'editDenied',
               message: '文档已被其他用户锁定',
               holderId: currentLock?.holderId || null,
@@ -360,7 +384,21 @@ wss.on('connection', (socket: WebSocket) => {
             break;
           }
           
-          documentContent = data.content;
+          // 冲突自动合并逻辑
+          // 假设文档内容按换行符分割成段落
+          const currentParagraphs = documentContent.split('\n');
+          const incomingParagraphs = data.content.split('\n');
+          const mergedParagraphs = [...currentParagraphs];
+          
+          // 合并不同段落的修改，保留最新修改的段落
+          for (let i = 0; i < incomingParagraphs.length; i++) {
+            if (i >= mergedParagraphs.length || incomingParagraphs[i] !== mergedParagraphs[i]) {
+              mergedParagraphs[i] = incomingParagraphs[i];
+            }
+          }
+          
+          // 更新文档内容
+          documentContent = mergedParagraphs.join('\n');
           editCounter++;
           
           // 每10次编辑保存一个版本快照
@@ -456,6 +494,9 @@ wss.on('connection', (socket: WebSocket) => {
           releaseLock(user.id, 'disconnect');
         }
         
+        // 将用户添加到断开连接用户列表
+        disconnectedUsers.set(user.id, user);
+        
         // 移除用户
         users.delete(socket);
         
@@ -468,6 +509,11 @@ wss.on('connection', (socket: WebSocket) => {
             }));
           }
         });
+        
+        // 设置定时器，30秒后清除断开连接的用户
+        setTimeout(() => {
+          disconnectedUsers.delete(user.id);
+        }, DISCONNECT_TIMEOUT);
       }
     }, 'WebSocket.close');
   });
