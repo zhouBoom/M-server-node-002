@@ -1,5 +1,226 @@
 [
   {
+    "timestamp": "2025-11-25T05:14:19.760Z",
+    "action": "manual",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5001,
+    "autoReleaseAt": 1764047660060,
+    "reason": "manual"
+  },
+  {
+    "timestamp": "2025-11-25T05:14:14.758Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047659758
+  },
+  {
+    "timestamp": "2025-11-25T05:14:14.645Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047659645
+  },
+  {
+    "timestamp": "2025-11-25T05:14:14.636Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047659636
+  },
+  {
+    "timestamp": "2025-11-25T05:14:09.872Z",
+    "action": "manual",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047650171,
+    "reason": "manual"
+  },
+  {
+    "timestamp": "2025-11-25T05:14:04.871Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047649871
+  },
+  {
+    "timestamp": "2025-11-25T05:14:04.814Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047649814
+  },
+  {
+    "timestamp": "2025-11-25T05:14:04.737Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047649737
+  },
+  {
+    "timestamp": "2025-11-25T05:14:04.564Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047649564
+  },
+  {
+    "timestamp": "2025-11-25T05:14:04.453Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047649452
+  },
+  {
+    "timestamp": "2025-11-25T05:14:04.408Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047649408
+  },
+  {
+    "timestamp": "2025-11-25T05:13:42.805Z",
+    "action": "manual",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5001,
+    "autoReleaseAt": 1764047623105,
+    "reason": "manual"
+  },
+  {
+    "timestamp": "2025-11-25T05:13:37.804Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047622804
+  },
+  {
+    "timestamp": "2025-11-25T05:13:37.749Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047622748
+  },
+  {
+    "timestamp": "2025-11-25T05:13:37.693Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047622693
+  },
+  {
+    "timestamp": "2025-11-25T05:13:37.564Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047622564
+  },
+  {
+    "timestamp": "2025-11-25T05:13:37.471Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047622471
+  },
+  {
+    "timestamp": "2025-11-25T05:13:37.437Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047622437
+  },
+  {
+    "timestamp": "2025-11-25T05:10:50.340Z",
+    "action": "auto-release",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5302,
+    "autoReleaseAt": 1764047450339,
+    "reason": "auto-release"
+  },
+  {
+    "timestamp": "2025-11-25T05:10:45.038Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047450038
+  },
+  {
+    "timestamp": "2025-11-25T05:10:44.986Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047449985
+  },
+  {
+    "timestamp": "2025-11-25T05:10:44.950Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047449950
+  },
+  {
+    "timestamp": "2025-11-25T05:10:44.749Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047449749
+  },
+  {
+    "timestamp": "2025-11-25T05:10:44.659Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047449659
+  },
+  {
+    "timestamp": "2025-11-25T05:10:44.587Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047449586
+  },
+  {
+    "timestamp": "2025-11-25T05:10:41.720Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047446720
+  },
+  {
+    "timestamp": "2025-11-25T05:10:41.652Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047446652
+  },
+  {
+    "timestamp": "2025-11-25T05:10:41.584Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047446584
+  },
+  {
+    "timestamp": "2025-11-25T05:10:41.465Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047446465
+  },
+  {
+    "timestamp": "2025-11-25T05:10:41.309Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047446308
+  },
+  {
+    "timestamp": "2025-11-25T05:10:41.261Z",
+    "action": "acquire",
+    "holderId": "v61pcuwmpcqddvv4idxxad",
+    "duration": 5000,
+    "autoReleaseAt": 1764047446260
+  },
+  {
     "timestamp": "2025-11-25T04:57:56.623Z",
     "action": "manual",
     "holderId": "dyiav6cpscbxl0rgu8u4da",
